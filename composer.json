@@ -1,0 +1,47 @@
+{
+    "authors": [
+        {
+            "email": "andykanidimbu@gmail.com",
+            "name": "Andy Kani"
+        }
+    ],
+    "autoload": {
+        "psr-4": {
+            "Andydefer\\LaravelReminder\\": "src/"
+        }
+    },
+    "autoload-dev": {
+        "psr-4": {
+            "Andydefer\\LaravelReminder\\Tests\\": "tests/"
+        }
+    },
+    "description": "A flexible and robust reminder system for Laravel",
+    "extra": {
+        "laravel": {
+            "aliases": {
+                "Reminder": "Andydefer\\LaravelReminder\\Facades\\Reminder"
+            },
+            "providers": [
+                "Andydefer\\LaravelReminder\\ReminderServiceProvider"
+            ]
+        }
+    },
+    "license": "MIT",
+    "minimum-stability": "stable",
+    "name": "andydefer/laravel-reminder",
+    "prefer-stable": true,
+    "require": {
+        "illuminate/bus": "^10.0|^11.0|^12.0",
+        "illuminate/console": "^10.0|^11.0|^12.0",
+        "illuminate/database": "^10.0|^11.0|^12.0",
+        "illuminate/notifications": "^10.0|^11.0|^12.0",
+        "illuminate/support": "^10.0|^11.0|^12.0",
+        "php": "^8.1"
+    },
+    "require-dev": {
+        "mockery/mockery": "^1.6",
+        "orchestra/testbench": "^8.0|^9.0",
+        "phpunit/phpunit": "^10.5"
+    },
+    "type": "library"
+}
