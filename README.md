@@ -1,14 +1,10 @@
-Voici votre documentation avec les noms de variables corrigés en anglais :
-
----
-
 # Laravel Reminder
 
 Une solution flexible et robuste pour gérer les rappels dans vos applications Laravel.
 
 ## Introduction
 
-Laravel Reminder est un package qui vous permet d'ajouter facilement un système de rappels à vos modèles Eloquent. Que ce soit pour envoyer des notifications d'échéance, des rappels de rendez-vous, ou toute autre alerte temporelle, ce package vous offre une architecture propre et extensible.
+Laravel Reminder est un package qui vous permet d'ajouter facilement un système de rappels à vos modèles Eloquent. Que ce soit pour envoyer des notifications d'échéance, des rappels de rendez-vous, ou toute autre alerte temporelle, ce package vous offre une architecture propre et extensible, intégrée nativement avec le système de notification de Laravel.
 
 ```php
 // Exemple simple : créer un rappel pour un rendez-vous
@@ -29,8 +25,9 @@ Le package repose sur un principe simple mais puissant : **tout modèle qui doit
 1. **Planification** : Vous créez des rappels pour vos modèles à des dates spécifiques
 2. **Traitement** : Un job planifié vérifie régulièrement les rappels à envoyer
 3. **Fenêtre de tolérance** : Chaque modèle définit sa propre fenêtre d'acceptation
-4. **Notification** : Le modèle génère les données de notification adaptées
-5. **Suivi** : Le système garde une trace de chaque tentative (succès/échec)
+4. **Notification** : Le modèle retourne une notification Laravel à envoyer
+5. **Envoi automatique** : Le système utilise `notify()` pour envoyer la notification
+6. **Suivi** : Le système garde une trace de chaque tentative (succès/échec)
 
 ## Installation
 
@@ -57,24 +54,82 @@ Le fichier de configuration `config/reminder.php` vous offre un contrôle total 
 
 ```php
 return [
-    // Tolérance par défaut pour tous les modèles
+    /*
+    |--------------------------------------------------------------------------
+    | Default Tolerance
+    |--------------------------------------------------------------------------
+    |
+    | This value defines the default tolerance window for all remindable models.
+    | Each model can override this value by implementing the getTolerance() method.
+    |
+    */
     'default_tolerance' => [
         'value' => 30,
         'unit' => ToleranceUnit::MINUTE, // MINUTE, HOUR, DAY, WEEK, MONTH, YEAR
     ],
 
-    // Tentatives maximales avant de marquer comme échoué
+    /*
+    |--------------------------------------------------------------------------
+    | Maximum Attempts
+    |--------------------------------------------------------------------------
+    |
+    | This value determines how many times the system will attempt to send a
+    | reminder before marking it as failed.
+    |
+    */
     'max_attempts' => 3,
 
-    // Configuration de la file d'attente
+    /*
+    |--------------------------------------------------------------------------
+    | Queue Configuration
+    |--------------------------------------------------------------------------
+    |
+    | Configure how reminders are processed through Laravel's queue system.
+    | Set enabled to false to process reminders synchronously.
+    |
+    */
     'queue' => [
         'enabled' => env('REMINDER_QUEUE_ENABLED', true),
         'name' => env('REMINDER_QUEUE_NAME', 'default'),
         'connection' => env('REMINDER_QUEUE_CONNECTION', env('QUEUE_CONNECTION', 'sync')),
     ],
 
-    // Fréquence de vérification (en secondes)
+    /*
+    |--------------------------------------------------------------------------
+    | Schedule Frequency
+    |--------------------------------------------------------------------------
+    |
+    | This value determines how often the scheduler checks for due reminders.
+    | Value is in seconds. Common values: 15, 30, 60.
+    |
+    */
     'schedule_frequency' => 15,
+
+    /*
+    |--------------------------------------------------------------------------
+    | Cleanup Configuration
+    |--------------------------------------------------------------------------
+    |
+    | Automatically clean up old reminders to keep your database clean.
+    |
+    */
+    'cleanup' => [
+        'enabled' => env('REMINDER_CLEANUP_ENABLED', false),
+        'after_days' => env('REMINDER_CLEANUP_AFTER_DAYS', 30),
+    ],
+
+    /*
+    |--------------------------------------------------------------------------
+    | Logging Configuration
+    |--------------------------------------------------------------------------
+    |
+    | Configure logging behavior for reminder processing.
+    |
+    */
+    'logging' => [
+        'enabled' => env('REMINDER_LOGGING_ENABLED', true),
+        'channel' => env('REMINDER_LOG_CHANNEL', 'stack'),
+    ],
 ];
 ```
 
@@ -114,30 +169,24 @@ use Andydefer\LaravelReminder\Enums\ToleranceUnit;
 use Andydefer\LaravelReminder\Models\Reminder;
 use Andydefer\LaravelReminder\Traits\Remindable;
 use Andydefer\LaravelReminder\ValueObjects\Tolerance;
+use App\Notifications\ArticleReminderNotification;
 use Illuminate\Database\Eloquent\Model;
+use Illuminate\Notifications\Notifiable;
+use Illuminate\Notifications\Notification;
 
 class Article extends Model implements ShouldRemind // Important : implémenter l'interface
 {
-    use Remindable;
+    use Remindable, Notifiable; // Notifiable est requis pour recevoir des notifications
 
     /**
-     * Définit les données de notification pour le rappel
+     * Retourne la notification à envoyer pour ce rappel
      */
-    public function toRemind(Reminder $reminder): array
+    public function toRemind(Reminder $reminder): Notification
     {
-        // Vous avez accès au rappel et à ses métadonnées
         $metadata = $reminder->metadata ?? [];
 
-        return [
-            'title' => "Reminder : {$this->title}",
-            'body' => "Don't forget to publish your article!",
-            'type' => $metadata['type'] ?? 'notification',
-            'data' => [
-                'article_id' => $this->id,
-                'custom_data' => $metadata,
-            ],
-            'imageUrl' => $this->featured_image, // Optionnel
-        ];
+        // Retournez une vraie notification Laravel
+        return new ArticleReminderNotification($this, $reminder, $metadata);
     }
 
     /**
@@ -161,7 +210,57 @@ class Article extends Model implements ShouldRemind // Important : implémenter 
 }
 ```
 
-### 3. Planifier des rappels
+### 3. Créer une notification Laravel
+
+```php
+<?php
+
+namespace App\Notifications;
+
+use App\Models\Article;
+use Andydefer\LaravelReminder\Models\Reminder;
+use Illuminate\Bus\Queueable;
+use Illuminate\Notifications\Notification;
+use Illuminate\Notifications\Messages\MailMessage;
+
+class ArticleReminderNotification extends Notification
+{
+    use Queueable;
+
+    public function __construct(
+        protected Article $article,
+        protected Reminder $reminder,
+        protected array $metadata = []
+    ) {}
+
+    public function via($notifiable): array
+    {
+        return ['mail', 'database'];
+    }
+
+    public function toMail($notifiable): MailMessage
+    {
+        return (new MailMessage)
+            ->subject("Reminder: {$this->article->title}")
+            ->line("Don't forget to publish your article!")
+            ->line("Scheduled for: {$this->reminder->scheduled_at->format('Y-m-d H:i')}")
+            ->action('View Article', url("/articles/{$this->article->id}"));
+    }
+
+    public function toArray($notifiable): array
+    {
+        return [
+            'article_id' => $this->article->id,
+            'article_title' => $this->article->title,
+            'reminder_id' => $this->reminder->id,
+            'scheduled_at' => $this->reminder->scheduled_at->toDateTimeString(),
+            'metadata' => $this->metadata,
+        ];
+    }
+}
+```
+
+### 4. Planifier des rappels
 
 Une fois votre modèle configuré, vous pouvez planifier des rappels de plusieurs façons :
 
@@ -189,7 +288,7 @@ $reminders = $article->scheduleMultipleReminders(
 $reminder = $article->scheduleReminder('2025-12-25 09:00:00');
 ```
 
-### 4. Gérer les rappels existants
+### 5. Gérer les rappels existants
 
 Le trait `Remindable` met à disposition plusieurs méthodes pour gérer vos rappels :
 
@@ -212,36 +311,80 @@ $nextReminder = $article->nextReminder();
 $cancelledCount = $article->cancelReminders();
 ```
 
-### 5. Traitement manuel des rappels
+## Commandes et Scheduler
 
-Si vous préférez traiter les rappels manuellement (sans la file d'attente) :
+Le package fournit plusieurs façons de traiter vos rappels, que ce soit via des commandes artisan ou le scheduler Laravel.
+
+### Commande Artisan
+
+Une commande dédiée vous permet de traiter les rappels manuellement :
 
 ```bash
-# Traitement synchrone
+# Traiter les rappels de manière synchrone (sans file d'attente)
 php artisan reminders:send --sync
 
-# Affiche un tableau comme ceci :
-# +-----------+-------+
-# | Metric    | Count |
-# +-----------+-------+
-# | Total     | 10    |
-# | Processed | 8     |
-# | Failed    | 2     |
-# +-----------+-------+
+# Traiter les rappels en dispatchant un job (par défaut)
+php artisan reminders:send
+
+# Spécifier une file d'attente particulière
+php artisan reminders:send --queue=emails
 ```
 
-Ou via la façade dans votre code :
+Exemple de sortie de la commande :
+```
+Starting reminder processing...
+Processing reminders synchronously...
+
++-----------+-------+
+| Metric    | Count |
++-----------+-------+
+| Total     | 10    |
+| Processed | 8     |
+| Failed    | 2     |
++-----------+-------+
+
+Reminders processed successfully!
+```
+
+### Scheduler Automatique
+
+Le package enregistre automatiquement un job planifié dans le scheduler Laravel. Pour l'activer, ajoutez simplement ceci dans votre `crontab` :
+
+```bash
+* * * * * cd /path-to-your-project && php artisan schedule:run >> /dev/null 2>&1
+```
+
+Le scheduler exécutera alors automatiquement le job de traitement des rappels à la fréquence définie dans votre configuration (par défaut : toutes les 15 secondes).
+
+### Configuration du Scheduler
+
+La fréquence d'exécution est configurable dans `config/reminder.php` :
 
 ```php
-use Andydefer\LaravelReminder\Facades\Reminder;
+// Fréquence en secondes (15, 30, 60, ou valeur personnalisée)
+'schedule_frequency' => 15,
+```
 
-$results = Reminder::processPendingReminders();
+Le scheduler s'adapte automatiquement à la valeur configurée :
+- `15` → exécution toutes les 15 secondes
+- `30` → exécution toutes les 30 secondes
+- `60` → exécution toutes les minutes
+- Autre valeur → exécution selon un cron personnalisé
 
-// $results = [
-//     'processed' => 8,
-//     'failed' => 2,
-//     'total' => 10,
-// ];
+### Vérification du Bon Fonctionnement
+
+Pour vérifier que tout fonctionne correctement :
+
+```bash
+# 1. Vérifier que le scheduler est configuré dans votre crontab
+crontab -l | grep "schedule:run"
+
+# 2. Voir les rappels en attente
+php artisan tinker
+>>> Reminder::pending()->count()
+
+# 3. Tester manuellement le traitement
+php artisan reminders:send --sync
 ```
 
 ## Architecture détaillée
@@ -346,7 +489,7 @@ $seconds = $tolerance->toSeconds(); // 7200
 echo (string) $tolerance; // "2 Hours"
 ```
 
-## Intégration avec le système de notifications Laravel
+## Intégration native avec le système de notifications Laravel
 
 Le package est conçu pour s'intégrer parfaitement avec le système de notifications de Laravel. Voici un exemple complet :
 
@@ -356,58 +499,33 @@ Le package est conçu pour s'intégrer parfaitement avec le système de notifica
 namespace App\Models;
 
 use Andydefer\LaravelReminder\Contracts\ShouldRemind;
+use Andydefer\LaravelReminder\Enums\ToleranceUnit;
 use Andydefer\LaravelReminder\Models\Reminder;
 use Andydefer\LaravelReminder\Traits\Remindable;
-use App\Notifications\ArticleReminderNotification;
+use Andydefer\LaravelReminder\ValueObjects\Tolerance;
+use App\Notifications\SubscriptionReminderNotification;
 use Illuminate\Foundation\Auth\User as Authenticatable;
 use Illuminate\Notifications\Notifiable;
+use Illuminate\Notifications\Notification;
 
 class User extends Authenticatable implements ShouldRemind
 {
     use Notifiable, Remindable;
 
-    public function toRemind(Reminder $reminder): array
+    public function toRemind(Reminder $reminder): Notification
     {
-        // Les données retournées seront utilisées pour créer une notification
-        return [
-            'title' => 'Important Reminder',
-            'body' => 'Your subscription expires soon',
-            'type' => 'subscription',
-            'data' => $reminder->metadata,
-        ];
+        // Retournez directement une notification Laravel
+        return new SubscriptionReminderNotification($this, $reminder);
     }
 
     public function getTolerance(): Tolerance
     {
-        // Grande flexibilité pour les utilisateurs
         return new Tolerance(24, ToleranceUnit::HOUR);
     }
 }
 
-// Dans un contrôleur ou une commande
-class ProcessRemindersController
-{
-    public function __invoke(ReminderService $service)
-    {
-        // Récupérer les rappels à traiter
-        $reminders = Reminder::due()->with('remindable')->get();
-
-        foreach ($reminders as $reminder) {
-            $user = $reminder->remindable;
-
-            // Créer une notification Laravel à partir des données du rappel
-            $notificationData = $user->toRemind($reminder);
-
-            $user->notify(new ArticleReminderNotification(
-                title: $notificationData['title'],
-                body: $notificationData['body'],
-                data: $notificationData['data'] ?? []
-            ));
-
-            $reminder->markAsSent();
-        }
-    }
-}
+// La notification sera automatiquement envoyée par le package
+// via $user->notify($notification)
 ```
 
 ## Événements
@@ -420,17 +538,15 @@ public function boot(): void
 {
     // Écouter tous les événements de rappel
     Event::listen('reminder.*', function ($eventName, $payload) {
-        Log::info("Reminder event : {$eventName}", $payload);
+        Log::info("Reminder event: {$eventName}", $payload);
     });
 
     // Écouter un événement spécifique
     Event::listen('reminder.sent', function ($reminder) {
-        // Envoyer une confirmation à l'administrateur
-        Log::info("Reminder sent successfully : {$reminder->id}");
+        Log::info("Reminder sent successfully: {$reminder->id}");
     });
 
     Event::listen('reminder.failed', function ($reminder, $exception) {
-        // Notifier l'équipe technique
         Log::error("Failed to send reminder", [
             'reminder_id' => $reminder->id,
             'error' => $exception->getMessage(),
@@ -447,7 +563,6 @@ public function boot(): void
 | `reminder.sent` | `$reminder` | Rappel envoyé avec succès |
 | `reminder.failed` | `[$reminder, $exception]` | Échec d'envoi |
 | `reminder.outside_tolerance` | `$reminder` | Rappel hors fenêtre de tolérance |
-| `reminder.sending` | `[$reminder, $notificationData]` | Avant l'envoi |
 | `reminder.processed` | `$results` | Fin du traitement global |
 
 ## Tests
@@ -469,7 +584,9 @@ namespace Tests\Feature;
 
 use Andydefer\LaravelReminder\Facades\Reminder;
 use App\Models\Article;
+use App\Notifications\ArticleReminderNotification;
 use Carbon\Carbon;
+use Illuminate\Support\Facades\Notification;
 use Tests\TestCase;
 
 class ArticleRemindersTest extends TestCase
@@ -495,30 +612,60 @@ class ArticleRemindersTest extends TestCase
         $this->assertCount(1, $article->reminders);
     }
 
-    public function test_reminder_is_sent_within_tolerance()
+    public function test_reminder_sends_notification()
     {
+        Notification::fake();
+
         // Simuler une date
         Carbon::setTestNow('2025-03-20 10:00:00');
 
         $article = Article::factory()->create();
 
-        // Rappel prévu il y a 25 minutes (dans la tolérance de 30 min)
+        // Rappel prévu il y a 5 minutes (dans la tolérance)
         $article->scheduleReminder(
-            scheduledAt: Carbon::now()->subMinutes(25)
+            scheduledAt: Carbon::now()->subMinutes(5)
         );
 
         // Traiter les rappels
-        $results = Reminder::processPendingReminders();
+        Reminder::processPendingReminders();
 
-        // Vérifier que le rappel a été traité
-        $this->assertEquals(1, $results['processed']);
+        // Vérifier que la notification a été envoyée
+        Notification::assertSentTo(
+            $article,
+            ArticleReminderNotification::class
+        );
     }
 }
 ```
 
 ## Bonnes pratiques
 
-### 1. Nommez vos métadonnées de façon cohérente
+### 1. Utilisez le trait Notifiable
+
+```php
+use Illuminate\Notifications\Notifiable;
+
+class Article extends Model implements ShouldRemind
+{
+    use Remindable, Notifiable; // Toujours inclure Notifiable
+}
+```
+
+### 2. Structurez vos notifications
+
+```php
+public function toRemind(Reminder $reminder): Notification
+{
+    // Vous pouvez retourner différentes notifications selon le contexte
+    if ($this->priority === 'high') {
+        return new UrgentReminderNotification($this, $reminder);
+    }
+
+    return new StandardReminderNotification($this, $reminder);
+}
+```
+
+### 3. Nommez vos métadonnées de façon cohérente
 
 ```php
 // 👍 À faire
@@ -539,21 +686,21 @@ $reminder = $order->scheduleReminder(
 );
 ```
 
-### 2. Utilisez la file d'attente en production
+### 4. Utilisez la file d'attente en production
 
 ```env
 # .env
 REMINDER_QUEUE_ENABLED=true
-REMINDER_QUEUE_CONNECTION=redis
-REMINDER_QUEUE_NAME=high
+REMINDER_QUEUE_CONNECTION=database
+REMINDER_QUEUE_NAME=default
 ```
 
 ```bash
-# Lancez un worker dédié
-php artisan queue:work redis --queue=high
+# Lancez un worker (adaptez selon votre configuration)
+php artisan queue:work
 ```
 
-### 3. Nettoyez les anciens rappels
+### 5. Nettoyez les anciens rappels
 
 Activez le nettoyage automatique dans votre configuration :
 
@@ -565,30 +712,25 @@ Activez le nettoyage automatique dans votre configuration :
 ],
 ```
 
-### 4. Gérez les erreurs gracieusement
+### 6. Gérez les erreurs gracieusement
 
 ```php
 class Article implements ShouldRemind
 {
-    public function toRemind(Reminder $reminder): array
+    public function toRemind(Reminder $reminder): Notification
     {
         try {
             // Logique métier potentiellement instable
-            $title = $this->getDynamicTitle();
+            return new DynamicReminderNotification($this, $reminder);
         } catch (\Exception $e) {
             // Fallback en cas d'erreur
-            Log::warning('Error generating reminder', [
+            Log::error('Error creating reminder notification', [
                 'article' => $this->id,
                 'error' => $e->getMessage(),
             ]);
 
-            $title = 'Reminder: ' . $this->title;
+            return new FallbackReminderNotification($this, $reminder);
         }
-
-        return [
-            'title' => $title,
-            'body' => 'Default content',
-        ];
     }
 }
 ```
@@ -605,7 +747,6 @@ trait RecurringReminders
         $reminders = [];
 
         foreach ($schedule as $interval) {
-            // $interval peut être 'daily', 'weekly', 'monthly', etc.
             $nextDate = $this->calculateNextDate($interval);
 
             $reminders[] = $this->scheduleReminder(
@@ -631,15 +772,24 @@ trait RecurringReminders
 // Utilisation
 class Subscription extends Model implements ShouldRemind
 {
-    use Remindable, RecurringReminders;
+    use Remindable, Notifiable, RecurringReminders;
 
     public function activate()
     {
-        // Planifier des rappels récurrents
         $this->scheduleRecurringReminders(
             schedule: ['daily', 'weekly', 'monthly'],
             metadata: ['subscription_id' => $this->id, 'type' => 'renewal']
         );
+    }
+
+    public function toRemind(Reminder $reminder): Notification
+    {
+        return new SubscriptionReminderNotification($this, $reminder);
+    }
+
+    public function getTolerance(): Tolerance
+    {
+        return new Tolerance(24, ToleranceUnit::HOUR);
     }
 }
 ```
@@ -649,27 +799,16 @@ class Subscription extends Model implements ShouldRemind
 ```php
 class Task extends Model implements ShouldRemind
 {
-    use Remindable;
+    use Remindable, Notifiable;
 
-    public function toRemind(Reminder $reminder): array
+    public function toRemind(Reminder $reminder): Notification
     {
-        $data = [
-            'title' => "Task : {$this->title}",
-            'body' => "This task is due in 24h",
-        ];
-
         // Adapter la notification selon le contexte
         if ($this->priority === 'high') {
-            $data['type'] = 'urgent';
-            $data['imageUrl'] = config('app.url') . '/images/urgent.png';
+            return new UrgentTaskNotification($this, $reminder);
         }
 
-        // Ajouter des données supplémentaires
-        if ($this->assigned_to) {
-            $data['data']['assignee'] = $this->assigned_to;
-        }
-
-        return $data;
+        return new TaskReminderNotification($this, $reminder);
     }
 
     public function getTolerance(): Tolerance
@@ -691,15 +830,36 @@ class Task extends Model implements ShouldRemind
 Vérifiez les points suivants :
 
 ```bash
-# 1. La file d'attente est-elle en cours d'exécution ?
-php artisan queue:status
+# 1. Le scheduler est-il configuré dans votre crontab ?
+crontab -l | grep "schedule:run"
 
 # 2. Les rappels sont-ils bien en attente ?
 php artisan tinker
 >>> Reminder::pending()->count()
 
-# 3. Y a-t-il des erreurs dans les logs ?
-tail -f storage/logs/laravel.log | grep "reminder"
+# 3. Vérifiez les erreurs dans les rappels
+>>> Reminder::whereNotNull('error_message')->get()
+
+# 4. Testez manuellement le traitement
+php artisan reminders:send --sync
+```
+
+### Problème : "toRemind() must return an instance of Notification"
+
+Assurez-vous que votre méthode `toRemind()` retourne bien une instance de `Illuminate\Notifications\Notification` :
+
+```php
+// ✅ Correct
+public function toRemind(Reminder $reminder): Notification
+{
+    return new MyNotification($this, $reminder);
+}
+
+// ❌ Incorrect (retourne un tableau)
+public function toRemind(Reminder $reminder): array
+{
+    return ['title' => 'test'];
+}
 ```
 
 ### Problème : Trop de tentatives échouées
@@ -709,10 +869,6 @@ Ajustez la configuration :
 ```php
 // config/reminder.php
 'max_attempts' => 5, // Augmenter le nombre de tentatives
-'queue' => [
-    'enabled' => true,
-    'connection' => 'redis', // Passer à Redis pour meilleure performance
-],
 ```
 
 ## Contribuer
