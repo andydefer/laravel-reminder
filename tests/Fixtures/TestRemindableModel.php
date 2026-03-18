@@ -87,4 +87,43 @@ class TestRemindableModel extends Model implements ShouldRemind
     {
         return 'test-notifications';
     }
+
+    /**
+     * Get the channels of the last reminder (helper for testing).
+     *
+     * @return array|null
+     */
+    public function getLastReminderChannels(): ?array
+    {
+        $lastReminder = $this->reminders()->latest()->first();
+        return $lastReminder ? $lastReminder->channels() : null;
+    }
+
+    /**
+     * Check if the last reminder has custom channels (helper for testing).
+     *
+     * @return bool
+     */
+    public function lastReminderHasCustomChannels(): bool
+    {
+        $lastReminder = $this->reminders()->latest()->first();
+        return $lastReminder ? $lastReminder->has_custom_channels : false;
+    }
+
+    /**
+     * Get all reminders with their channels (helper for testing).
+     *
+     * @return \Illuminate\Database\Eloquent\Collection
+     */
+    public function getRemindersWithChannels()
+    {
+        return $this->reminders()->get()->map(function ($reminder) {
+            return [
+                'id' => $reminder->id,
+                'scheduled_at' => $reminder->scheduled_at,
+                'channels' => $reminder->channels(),
+                'has_custom_channels' => $reminder->has_custom_channels,
+            ];
+        });
+    }
 }

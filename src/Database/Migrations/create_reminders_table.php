@@ -17,7 +17,7 @@ return new class extends Migration
         Schema::create('reminders', function (Blueprint $table) {
             $table->id();
 
-            // Polymorphic relation to any remindable model
+            // Polymorphic relation
             $table->morphs('remindable');
 
             // Timing
@@ -27,6 +27,7 @@ return new class extends Migration
             // Status and tracking
             $table->string('status')->default(ReminderStatus::PENDING->value)->index();
             $table->json('metadata')->nullable();
+            $table->json('channels')->default(json_encode([])); // Champ JSON pour channels
             $table->unsignedTinyInteger('attempts')->default(0);
             $table->dateTime('last_attempt_at')->nullable();
             $table->text('error_message')->nullable();
@@ -34,7 +35,7 @@ return new class extends Migration
             // Timestamps
             $table->timestamps();
 
-            // Composite indexes for common queries
+            // Indexes utiles
             $table->index(['status', 'scheduled_at']);
             $table->index(['remindable_type', 'remindable_id', 'status']);
         });

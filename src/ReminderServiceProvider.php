@@ -80,15 +80,10 @@ class ReminderServiceProvider extends ServiceProvider
     private function registerReminderService(): void
     {
         $this->app->singleton(ReminderService::class, function ($app) {
-            $service = new ReminderService(
-                config: Config::get('reminder', [])
+            return new ReminderService(
+                config: Config::get('reminder', []),
+                events: $app['events']
             );
-
-            if (isset($app['events'])) {
-                $service->setEventDispatcher($app['events']);
-            }
-
-            return $service;
         });
     }
 

@@ -4,6 +4,7 @@ declare(strict_types=1);
 
 namespace Andydefer\LaravelReminder\Models;
 
+use Andydefer\LaravelReminder\Casts\ChannelsCast;
 use Andydefer\LaravelReminder\Enums\ReminderStatus;
 use Carbon\Carbon;
 use Illuminate\Database\Eloquent\Model;
@@ -17,6 +18,7 @@ use Illuminate\Database\Eloquent\Relations\MorphTo;
  * @property Carbon|null $sent_at
  * @property ReminderStatus $status
  * @property array|null $metadata
+ * @property array $channels
  * @property int $attempts
  * @property Carbon|null $last_attempt_at
  * @property string|null $error_message
@@ -38,6 +40,7 @@ class Reminder extends Model
         'sent_at',
         'status',
         'metadata',
+        'channels',
         'attempts',
         'last_attempt_at',
         'error_message',
@@ -48,6 +51,7 @@ class Reminder extends Model
         'sent_at' => 'datetime',
         'last_attempt_at' => 'datetime',
         'metadata' => 'array',
+        'channels' => ChannelsCast::class,
         'status' => ReminderStatus::class,
         'attempts' => 'integer',
     ];
@@ -63,32 +67,11 @@ class Reminder extends Model
     }
 
     /**
-     * Scope a query to only include pending reminders.
+     * Retourne les channels à utiliser pour ce reminder
      */
-    public function scopePending($query)
+    public function channels(): array
     {
-        return $query->where('status', ReminderStatus::PENDING->value);
-    }
-
-    /**
-     * Scope a query to only include due reminders.
-     */
-    public function scopeDue($query)
-    {
-        return $query->where('status', ReminderStatus::PENDING->value)
-            ->where('scheduled_at', '<=', now())
-            ->where('attempts', '<', 3);
-    }
-
-    /**
-     * Scope a query to include reminders within tolerance window.
-     */
-    public function scopeWithinTolerance($query, int $toleranceMinutes)
-    {
-        return $query->whereBetween('scheduled_at', [
-            now()->subMinutes($toleranceMinutes),
-            now()->addMinutes($toleranceMinutes)
-        ]);
+        return $this->channels ?? [];
     }
 
     /**
@@ -157,5 +140,48 @@ class Reminder extends Model
     public function hasFailed(): bool
     {
         return $this->status === ReminderStatus::FAILED;
+    }
+
+    /**
+     * Indique si des channels personnalisés ont été définis
+     */
+    public function getHasCustomChannelsAttribute(): bool
+    {
+        $channels = $this->channels();
+        return !empty($channels);
+    }
+
+    /**
+     * Retourne les channels à utiliser pour ce reminder (custom si défini, sinon fallback)
+     *
+     * @param array $fallbackChannels Channels à utiliser si aucun custom défini
+     * @return array
+     */
+    public function channelsForSending(array $fallbackChannels = ['mail']): array
+    {
+        return $this->has_custom_channels
+            ? $this->channels()
+            : $fallbackChannels;
+    }
+
+    // Scopes
+    public function scopePending($query)
+    {
+        return $query->where('status', ReminderStatus::PENDING->value);
+    }
+
+    public function scopeDue($query)
+    {
+        return $query->where('status', ReminderStatus::PENDING->value)
+            ->where('scheduled_at', '<=', now())
+            ->where('attempts', '<', config('reminder.max_attempts', 3));
+    }
+
+    public function scopeWithinTolerance($query, int $toleranceMinutes)
+    {
+        return $query->whereBetween('scheduled_at', [
+            now()->subMinutes($toleranceMinutes),
+            now()->addMinutes($toleranceMinutes)
+        ]);
     }
 }

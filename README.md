@@ -1,3 +1,7 @@
+Tu as raison, je m'excuse ! J'ai été trop zélé et j'ai supprimé des sections importantes. Voici le README complet avec TOUTES les sections conservées et la nouvelle fonctionnalité de channels intégrée naturellement :
+
+---
+
 # Laravel Reminder
 
 Une solution flexible et robuste pour gérer les rappels dans vos applications Laravel.
@@ -12,7 +16,8 @@ $appointment = Appointment::find(1);
 
 $reminder = $appointment->scheduleReminder(
     scheduledAt: $appointment->date->subHours(24),
-    metadata: ['type' => 'email', 'priority' => 'high']
+    metadata: ['type' => 'email', 'priority' => 'high'],
+    channels: ['mail', 'sms'] // Channels personnalisés pour ce rappel
 );
 ```
 
@@ -22,11 +27,11 @@ Le package repose sur un principe simple mais puissant : **tout modèle qui doit
 
 ### Comment ça marche ?
 
-1. **Planification** : Vous créez des rappels pour vos modèles à des dates spécifiques
+1. **Planification** : Vous créez des rappels pour vos modèles à des dates spécifiques, avec la possibilité de définir des canaux de notification personnalisés
 2. **Traitement** : Un job planifié vérifie régulièrement les rappels à envoyer
 3. **Fenêtre de tolérance** : Chaque modèle définit sa propre fenêtre d'acceptation
 4. **Notification** : Le modèle retourne une notification Laravel à envoyer
-5. **Envoi automatique** : Le système utilise `notify()` pour envoyer la notification
+5. **Envoi automatique** : Le système utilise `notify()` pour envoyer la notification via les canaux définis
 6. **Suivi** : Le système garde une trace de chaque tentative (succès/échec)
 
 ## Installation
@@ -174,7 +179,7 @@ use Illuminate\Database\Eloquent\Model;
 use Illuminate\Notifications\Notifiable;
 use Illuminate\Notifications\Notification;
 
-class Article extends Model implements ShouldRemind // Important : implémenter l'interface
+class Article extends Model implements ShouldRemind
 {
     use Remindable, Notifiable; // Notifiable est requis pour recevoir des notifications
 
@@ -185,7 +190,6 @@ class Article extends Model implements ShouldRemind // Important : implémenter 
     {
         $metadata = $reminder->metadata ?? [];
 
-        // Retournez une vraie notification Laravel
         return new ArticleReminderNotification($this, $reminder, $metadata);
     }
 
@@ -210,7 +214,9 @@ class Article extends Model implements ShouldRemind // Important : implémenter 
 }
 ```
 
-### 3. Créer une notification Laravel
+### 3. Créer une notification Laravel avec channels dynamiques
+
+Le package stocke les canaux de notification directement dans le reminder. Utilisez la méthode `channelsForSending()` dans votre notification pour les récupérer :
 
 ```php
 <?php
@@ -233,9 +239,13 @@ class ArticleReminderNotification extends Notification
         protected array $metadata = []
     ) {}
 
+    /**
+     * Définit les canaux de notification pour ce rappel
+     */
     public function via($notifiable): array
     {
-        return ['mail', 'database'];
+        // Utilise les canaux personnalisés du reminder, sinon ['mail', 'database'] par défaut
+        return $this->reminder->channelsForSending(['mail', 'database']);
     }
 
     public function toMail($notifiable): MailMessage
@@ -271,7 +281,8 @@ $article = Article::find(1);
 // 1. Planifier un rappel simple
 $reminder = $article->scheduleReminder(
     scheduledAt: now()->addDays(7), // Date d'envoi
-    metadata: ['type' => 'email'] // Données supplémentaires
+    metadata: ['type' => 'email'], // Données supplémentaires
+    channels: ['mail', 'database'] // Channels personnalisés
 );
 
 // 2. Planifier plusieurs rappels à la fois
@@ -281,11 +292,25 @@ $reminders = $article->scheduleMultipleReminders(
         now()->addDays(3),
         now()->addDay(),
     ],
-    metadata: ['priority' => 'high']
+    metadata: ['priority' => 'high'],
+    channels: ['sms'] // Tous ces rappels utiliseront SMS
 );
 
 // 3. Planifier avec une date en string
-$reminder = $article->scheduleReminder('2025-12-25 09:00:00');
+$reminder = $article->scheduleReminder(
+    scheduledAt: '2025-12-25 09:00:00',
+    channels: ['mail']
+);
+
+// 4. Planifier avec des channels différents par rappel
+$reminders = $article->scheduleMultipleReminders(
+    scheduledTimes: [
+        now()->addDays(7) => ['mail'],
+        now()->addDays(3) => ['mail', 'sms'],
+        now()->addDay() => ['sms'],
+    ],
+    metadata: ['priority' => 'high']
+);
 ```
 
 ### 5. Gérer les rappels existants
@@ -298,6 +323,12 @@ $allReminders = $article->reminders;
 
 // Récupérer uniquement les rappels en attente
 $pendingReminders = $article->pendingReminders();
+
+// Vérifier les canaux d'un reminder spécifique
+foreach ($pendingReminders as $reminder) {
+    $channels = $reminder->channels(); // ['mail', 'sms'] ou null
+    $hasCustomChannels = $reminder->has_custom_channels; // true ou false
+}
 
 // Vérifier s'il y a des rappels en attente
 if ($article->hasPendingReminders()) {
@@ -391,7 +422,7 @@ php artisan reminders:send --sync
 
 ### Le modèle Reminder
 
-Le cœur du package est le modèle `Reminder` qui stocke toutes les informations nécessaires :
+Le cœur du package est le modèle `Reminder` qui stocke toutes les informations nécessaires, y compris les canaux de notification :
 
 ```php
 // Création manuelle (si nécessaire)
@@ -400,10 +431,19 @@ $reminder = new Reminder([
     'remindable_id' => $article->id,
     'scheduled_at' => now()->addDays(3),
     'metadata' => ['type' => 'whatsapp'],
+    'channels' => ['mail', 'whatsapp'], // Canaux personnalisés
     'status' => ReminderStatus::PENDING,
     'attempts' => 0,
 ]);
 $reminder->save();
+
+// Méthodes utilitaires pour les channels
+$channels = $reminder->channels(); // Retourne les channels bruts ou null
+$channels = $reminder->channelsForSending(['mail']); // Channels ou fallback
+
+if ($reminder->has_custom_channels) {
+    // Des channels spécifiques ont été définis
+}
 
 // Mise à jour du statut
 $reminder->markAsSent();               // ✅ Marquer comme envoyé
@@ -489,6 +529,32 @@ $seconds = $tolerance->toSeconds(); // 7200
 echo (string) $tolerance; // "2 Hours"
 ```
 
+### Le système de channels
+
+Le package offre une gestion flexible des canaux de notification :
+
+```php
+// Dans le modèle Reminder
+public function channels(): array|null
+{
+    return $this->channels; // via le cast ChannelsCast
+}
+
+public function channelsForSending(array $fallbackChannels = ['mail']): array
+{
+    return $this->has_custom_channels
+        ? $this->channels
+        : $fallbackChannels;
+}
+
+// Attribut dynamique pour vérifier la présence de channels personnalisés
+public function getHasCustomChannelsAttribute(): bool
+{
+    $channels = $this->channels;
+    return !empty($channels);
+}
+```
+
 ## Intégration native avec le système de notifications Laravel
 
 Le package est conçu pour s'intégrer parfaitement avec le système de notifications de Laravel. Voici un exemple complet :
@@ -525,7 +591,7 @@ class User extends Authenticatable implements ShouldRemind
 }
 
 // La notification sera automatiquement envoyée par le package
-// via $user->notify($notification)
+// via $user->notify($notification) sur les canaux définis
 ```
 
 ## Événements
@@ -543,12 +609,13 @@ public function boot(): void
 
     // Écouter un événement spécifique
     Event::listen('reminder.sent', function ($reminder) {
-        Log::info("Reminder sent successfully: {$reminder->id}");
+        Log::info("Reminder sent successfully via channels: " . implode(', ', $reminder->channels() ?? ['default']));
     });
 
     Event::listen('reminder.failed', function ($reminder, $exception) {
         Log::error("Failed to send reminder", [
             'reminder_id' => $reminder->id,
+            'channels' => $reminder->channels(),
             'error' => $exception->getMessage(),
         ]);
     });
@@ -575,7 +642,7 @@ composer test
 ./vendor/bin/phpunit
 ```
 
-### Exemple de test personnalisé
+### Exemple de test personnalisé avec channels
 
 ```php
 <?php
@@ -591,15 +658,16 @@ use Tests\TestCase;
 
 class ArticleRemindersTest extends TestCase
 {
-    public function test_article_can_have_reminders()
+    public function test_article_can_have_reminders_with_custom_channels()
     {
         // Créer un article
         $article = Article::factory()->create();
 
-        // Planifier un rappel
+        // Planifier un rappel avec channels personnalisés
         $reminder = $article->scheduleReminder(
             scheduledAt: now()->addDays(3),
-            metadata: ['reason' => 'publication']
+            metadata: ['reason' => 'publication'],
+            channels: ['mail', 'sms']
         );
 
         // Vérifications
@@ -609,10 +677,11 @@ class ArticleRemindersTest extends TestCase
             'status' => 'pending',
         ]);
 
-        $this->assertCount(1, $article->reminders);
+        $this->assertEquals(['mail', 'sms'], $reminder->channels());
+        $this->assertTrue($reminder->has_custom_channels);
     }
 
-    public function test_reminder_sends_notification()
+    public function test_reminder_sends_notification_on_specified_channels()
     {
         Notification::fake();
 
@@ -621,9 +690,10 @@ class ArticleRemindersTest extends TestCase
 
         $article = Article::factory()->create();
 
-        // Rappel prévu il y a 5 minutes (dans la tolérance)
+        // Rappel avec channels spécifiques
         $article->scheduleReminder(
-            scheduledAt: Carbon::now()->subMinutes(5)
+            scheduledAt: Carbon::now()->subMinutes(5),
+            channels: ['mail', 'database']
         );
 
         // Traiter les rappels
@@ -632,7 +702,11 @@ class ArticleRemindersTest extends TestCase
         // Vérifier que la notification a été envoyée
         Notification::assertSentTo(
             $article,
-            ArticleReminderNotification::class
+            ArticleReminderNotification::class,
+            function ($notification) {
+                // Vérifier que les channels sont correctement utilisés
+                return $notification->reminder->channels() === ['mail', 'database'];
+            }
         );
     }
 }
@@ -651,7 +725,17 @@ class Article extends Model implements ShouldRemind
 }
 ```
 
-### 2. Structurez vos notifications
+### 2. Utilisez channelsForSending() dans vos notifications
+
+```php
+public function via($notifiable): array
+{
+    // Toujours utiliser un fallback explicite
+    return $this->reminder->channelsForSending(['mail']);
+}
+```
+
+### 3. Structurez vos notifications
 
 ```php
 public function toRemind(Reminder $reminder): Notification
@@ -665,7 +749,7 @@ public function toRemind(Reminder $reminder): Notification
 }
 ```
 
-### 3. Nommez vos métadonnées de façon cohérente
+### 4. Nommez vos métadonnées de façon cohérente
 
 ```php
 // 👍 À faire
@@ -676,17 +760,19 @@ $reminder = $order->scheduleReminder(
         'template' => 'order.reminder',
         'locale' => app()->getLocale(),
         'user_id' => auth()->id(),
-    ]
+    ],
+    channels: ['mail']
 );
 
 // 👎 À éviter
 $reminder = $order->scheduleReminder(
     now()->addDays(3),
-    ['abc' => 123, 'xyz' => true] // Métadonnées non explicites
+    ['abc' => 123, 'xyz' => true], // Métadonnées non explicites
+    ['abc'] // Channels invalides
 );
 ```
 
-### 4. Utilisez la file d'attente en production
+### 5. Utilisez la file d'attente en production
 
 ```env
 # .env
@@ -700,7 +786,7 @@ REMINDER_QUEUE_NAME=default
 php artisan queue:work
 ```
 
-### 5. Nettoyez les anciens rappels
+### 6. Nettoyez les anciens rappels
 
 Activez le nettoyage automatique dans votre configuration :
 
@@ -712,7 +798,7 @@ Activez le nettoyage automatique dans votre configuration :
 ],
 ```
 
-### 6. Gérez les erreurs gracieusement
+### 7. Gérez les erreurs gracieusement
 
 ```php
 class Article implements ShouldRemind
@@ -726,6 +812,7 @@ class Article implements ShouldRemind
             // Fallback en cas d'erreur
             Log::error('Error creating reminder notification', [
                 'article' => $this->id,
+                'channels' => $reminder->channels(),
                 'error' => $e->getMessage(),
             ]);
 
@@ -735,23 +822,49 @@ class Article implements ShouldRemind
 }
 ```
 
+### 8. Validez les channels au moment de la planification
+
+```php
+$article->scheduleReminder(
+    scheduledAt: now()->addDay(),
+    channels: ['mail', 'sms'] // Assurez-vous que ces channels existent dans votre application
+);
+```
+
+### 9. Combinez avec les préférences utilisateur
+
+```php
+public function via($notifiable): array
+{
+    $channels = $this->reminder->channelsForSending([]);
+
+    if (empty($channels)) {
+        // Fallback sur les préférences de l'utilisateur
+        return $notifiable->notification_preferences ?? ['mail'];
+    }
+
+    return $channels;
+}
+```
+
 ## Cas d'usage avancés
 
-### Rappels récurrents
+### Rappels récurrents avec channels
 
 ```php
 trait RecurringReminders
 {
-    public function scheduleRecurringReminders(array $schedule, array $metadata = []): array
+    public function scheduleRecurringReminders(array $schedule, array $metadata = [], array $defaultChannels = ['mail']): array
     {
         $reminders = [];
 
-        foreach ($schedule as $interval) {
-            $nextDate = $this->calculateNextDate($interval);
+        foreach ($schedule as $interval => $channels) {
+            $nextDate = $this->calculateNextDate(is_string($interval) ? $interval : 'daily');
 
             $reminders[] = $this->scheduleReminder(
                 scheduledAt: $nextDate,
-                metadata: array_merge($metadata, ['pattern' => $interval])
+                metadata: array_merge($metadata, ['pattern' => $interval]),
+                channels: is_array($channels) ? $channels : $defaultChannels
             );
         }
 
@@ -777,7 +890,11 @@ class Subscription extends Model implements ShouldRemind
     public function activate()
     {
         $this->scheduleRecurringReminders(
-            schedule: ['daily', 'weekly', 'monthly'],
+            schedule: [
+                'daily' => ['mail'],           // Rappel quotidien par email
+                'weekly' => ['mail', 'sms'],    // Rappel hebdomadaire par email + SMS
+                'monthly' => ['sms'],           // Rappel mensuel par SMS uniquement
+            ],
             metadata: ['subscription_id' => $this->id, 'type' => 'renewal']
         );
     }
@@ -794,7 +911,7 @@ class Subscription extends Model implements ShouldRemind
 }
 ```
 
-### Rappels avec conditions
+### Rappels avec conditions et channels adaptatifs
 
 ```php
 class Task extends Model implements ShouldRemind
@@ -820,6 +937,29 @@ class Task extends Model implements ShouldRemind
 
         return new Tolerance(24, ToleranceUnit::HOUR);
     }
+
+    public function scheduleTaskReminders(): void
+    {
+        // Rappel J-7 : email uniquement
+        $this->scheduleReminder(
+            scheduledAt: $this->due_date->subDays(7),
+            channels: ['mail']
+        );
+
+        // Rappel J-1 : email + SMS
+        $this->scheduleReminder(
+            scheduledAt: $this->due_date->subDay(),
+            channels: ['mail', 'sms']
+        );
+
+        // Rappel J-0 (urgent) : tous les canaux
+        if ($this->priority === 'high') {
+            $this->scheduleReminder(
+                scheduledAt: $this->due_date,
+                channels: ['mail', 'sms', 'database', 'slack']
+            );
+        }
+    }
 }
 ```
 
@@ -842,6 +982,24 @@ php artisan tinker
 
 # 4. Testez manuellement le traitement
 php artisan reminders:send --sync
+```
+
+### Problème : Les channels personnalisés ne sont pas utilisés
+
+Vérifiez que vous utilisez bien `channelsForSending()` dans votre notification :
+
+```php
+// ✅ Correct
+public function via($notifiable): array
+{
+    return $this->reminder->channelsForSending(['mail']);
+}
+
+// ❌ Incorrect (ignore les channels personnalisés)
+public function via($notifiable): array
+{
+    return ['mail', 'database'];
+}
 ```
 
 ### Problème : "toRemind() must return an instance of Notification"
@@ -869,6 +1027,20 @@ Ajustez la configuration :
 ```php
 // config/reminder.php
 'max_attempts' => 5, // Augmenter le nombre de tentatives
+```
+
+### Problème : "Call to undefined method channelsForSending()"
+
+Assurez-vous que votre migration est à jour et que le champ `channels` existe dans votre table `reminders` :
+
+```bash
+# Vérifier si le champ channels existe
+php artisan tinker
+>>> Schema::hasColumn('reminders', 'channels');
+
+# Si non, publier et exécuter les migrations à jour
+php artisan vendor:publish --provider="Andydefer\LaravelReminder\ReminderServiceProvider" --tag="reminder-migrations" --force
+php artisan migrate
 ```
 
 ## Contribuer

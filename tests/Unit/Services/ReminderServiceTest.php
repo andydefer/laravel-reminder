@@ -13,6 +13,7 @@ use Andydefer\LaravelReminder\Tests\Fixtures\TestRemindableModel;
 use Andydefer\LaravelReminder\Tests\TestCase;
 use Carbon\Carbon;
 use Illuminate\Support\Facades\Event;
+use Illuminate\Support\Facades\Notification;
 use Mockery;
 
 class ReminderServiceTest extends TestCase
@@ -33,16 +34,17 @@ class ReminderServiceTest extends TestCase
         parent::tearDown();
     }
 
-    private function createReminder($model, Carbon $scheduledAt): Reminder
+    private function createReminder($model, Carbon $scheduledAt, array $attributes = []): Reminder
     {
-        $reminder = new Reminder([
+        $reminder = new Reminder(array_merge([
             'remindable_type' => get_class($model),
             'remindable_id' => $model->id,
             'scheduled_at' => $scheduledAt,
             'status' => ReminderStatus::PENDING,
             'attempts' => 0,
             'metadata' => [],
-        ]);
+            'channels' => [],
+        ], $attributes));
         $reminder->save();
 
         // Charger la relation pour éviter les problèmes de lazy loading
@@ -183,7 +185,6 @@ class ReminderServiceTest extends TestCase
             $this->assertEquals(1, $fresh->attempts);
 
             // Vérifier que le message d'erreur indique un problème de type
-            // Le message exact de PHP peut varier, on vérifie juste qu'il parle de type
             $this->assertTrue(
                 str_contains($fresh->error_message, 'must be of type') ||
                     str_contains($fresh->error_message, 'must return') ||
@@ -284,5 +285,174 @@ class ReminderServiceTest extends TestCase
             'notifiable_id' => $model->id,
             'type' => TestNotification::class,
         ]);
+    }
+
+    public function test_process_reminder_uses_custom_channels(): void
+    {
+        // Arrange
+        Notification::fake(); // 👈 AJOUTER CECI
+
+        $model = $this->createTestRemindableModel();
+        $customChannels = ['mail', 'sms', 'slack'];
+
+        $reminder = $this->createReminder($model, Carbon::now()->subMinutes(5), [
+            'channels' => $customChannels
+        ]);
+
+        // Act
+        $result = $this->service->processReminder($reminder);
+
+        // Assert
+        $this->assertTrue($result);
+        $fresh = $reminder->fresh();
+        $this->assertEquals(ReminderStatus::SENT, $fresh->status);
+
+        // Vérifier que les channels sont préservés
+        $this->assertEquals($customChannels, $fresh->channels());
+        $this->assertTrue($fresh->has_custom_channels);
+
+        // Vérifier que la notification a été envoyée avec les bons channels
+        Notification::assertSentTo(
+            $model,
+            TestNotification::class,
+            function ($notification) use ($customChannels) {
+                return $notification->reminder->channels() === $customChannels;
+            }
+        );
+    }
+
+    public function test_process_reminder_handles_notification_with_channels_for_sending(): void
+    {
+        // Arrange
+        Notification::fake(); // 👈 C'EST SUFFISANT !
+
+        $model = $this->createTestRemindableModel();
+        $customChannels = ['mail', 'sms'];
+
+        $reminder = $this->createReminder($model, Carbon::now()->subMinutes(5), [
+            'channels' => $customChannels
+        ]);
+
+        // Act
+        $result = $this->service->processReminder($reminder);
+
+        // Assert
+        $this->assertTrue($result);
+        $fresh = $reminder->fresh();
+        $this->assertEquals(ReminderStatus::SENT, $fresh->status);
+        $this->assertEquals($customChannels, $fresh->channels());
+
+        // ✅ Vérifier que la notification a été envoyée avec les bons channels
+        Notification::assertSentTo(
+            $model,
+            TestNotification::class,
+            function ($notification) use ($customChannels) {
+                return $notification->reminder->channels() === $customChannels;
+            }
+        );
+    }
+
+    public function test_process_reminder_uses_fallback_channels_when_no_custom_channels(): void
+    {
+        // Arrange
+        $model = $this->createTestRemindableModel();
+
+        $reminder = $this->createReminder($model, Carbon::now()->subMinutes(5), [
+            'channels' => [] // Pas de channels personnalisés
+        ]);
+
+        // Act
+        $result = $this->service->processReminder($reminder);
+
+        // Assert
+        $this->assertTrue($result);
+        $fresh = $reminder->fresh();
+        $this->assertEquals(ReminderStatus::SENT, $fresh->status);
+        $this->assertIsArray($fresh->channels());
+        $this->assertEmpty($fresh->channels());
+        $this->assertFalse($fresh->has_custom_channels);
+    }
+
+    public function test_process_pending_reminders_preserves_channels_for_all_reminders(): void
+    {
+        // Arrange
+        Notification::fake(); // 👈 AJOUTER POUR ÉVITER LES VRAIS ENVOIS
+
+        $model = $this->createTestRemindableModel();
+
+        $reminder1 = $this->createReminder($model, Carbon::now()->subMinutes(15), [
+            'channels' => ['mail']
+        ]);
+
+        $reminder2 = $this->createReminder($model, Carbon::now()->subMinutes(20), [
+            'channels' => ['sms', 'push']
+        ]);
+
+        $reminder3 = $this->createReminder($model, Carbon::now()->subHours(2), [
+            'channels' => ['slack'] // Hors tolérance
+        ]);
+
+        $reminder4 = $this->createReminder($model, Carbon::now()->addDays(1), [
+            'channels' => ['database'] // Futur
+        ]);
+
+        // Act
+        $result = $this->service->processPendingReminders();
+
+        // Assert
+        $reminder1->refresh();
+        $reminder2->refresh();
+        $reminder3->refresh();
+        $reminder4->refresh();
+
+        $this->assertEquals(2, $result['processed']);
+        $this->assertEquals(1, $result['failed']);
+        $this->assertEquals(3, $result['total']);
+
+        $this->assertEquals(ReminderStatus::SENT, $reminder1->status);
+        $this->assertEquals(['mail'], $reminder1->channels());
+        $this->assertTrue($reminder1->has_custom_channels);
+
+        $this->assertEquals(ReminderStatus::SENT, $reminder2->status);
+        $this->assertEquals(['sms', 'push'], $reminder2->channels());
+        $this->assertTrue($reminder2->has_custom_channels);
+
+        $this->assertEquals(ReminderStatus::PENDING, $reminder3->status);
+        $this->assertEquals(['slack'], $reminder3->channels());
+        $this->assertTrue($reminder3->has_custom_channels);
+        $this->assertEquals(1, $reminder3->attempts); // Vérifier que la tentative a été comptée
+
+        $this->assertEquals(ReminderStatus::PENDING, $reminder4->status);
+        $this->assertEquals(['database'], $reminder4->channels());
+        $this->assertTrue($reminder4->has_custom_channels);
+        $this->assertEquals(0, $reminder4->attempts); // Pas de tentative car futur
+
+        // ✅ Vérifications supplémentaires avec Notification::fake()
+        Notification::assertSentTo(
+            $model,
+            TestNotification::class,
+            2 // Exactement 2 notifications envoyées
+        );
+    }
+
+    public function test_process_reminder_with_null_channels_uses_empty_array(): void
+    {
+        // Arrange
+        $model = $this->createTestRemindableModel();
+
+        $reminder = $this->createReminder($model, Carbon::now()->subMinutes(5), [
+            'channels' => null
+        ]);
+
+        // Act
+        $result = $this->service->processReminder($reminder);
+
+        // Assert
+        $this->assertTrue($result);
+        $fresh = $reminder->fresh();
+        $this->assertEquals(ReminderStatus::SENT, $fresh->status);
+        $this->assertIsArray($fresh->channels());
+        $this->assertEmpty($fresh->channels());
+        $this->assertFalse($fresh->has_custom_channels);
     }
 }
