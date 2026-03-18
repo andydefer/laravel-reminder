@@ -10,13 +10,13 @@ return [
     | Default Tolerance
     |--------------------------------------------------------------------------
     |
-    | The default tolerance window for sending reminders. This can be
-    | overridden by individual models implementing ShouldRemind.
+    | This value defines the default tolerance window for all remindable models.
+    | Each model can override this value by implementing the getTolerance() method.
     |
     */
     'default_tolerance' => [
         'value' => 30,
-        'unit' => ToleranceUnit::MINUTE,
+        'unit' => ToleranceUnit::MINUTE, // MINUTE, HOUR, DAY, WEEK, MONTH, YEAR
     ],
 
     /*
@@ -24,7 +24,8 @@ return [
     | Maximum Attempts
     |--------------------------------------------------------------------------
     |
-    | Maximum number of attempts to send a reminder before marking as failed.
+    | This value determines how many times the system will attempt to send a
+    | reminder before marking it as failed.
     |
     */
     'max_attempts' => 3,
@@ -34,7 +35,8 @@ return [
     | Queue Configuration
     |--------------------------------------------------------------------------
     |
-    | Configure the queue settings for processing reminders.
+    | Configure how reminders are processed through Laravel's queue system.
+    | Set enabled to false to process reminders synchronously.
     |
     */
     'queue' => [
@@ -48,37 +50,35 @@ return [
     | Schedule Frequency
     |--------------------------------------------------------------------------
     |
-    | How often the reminder job should run (in seconds).
-    | Default is 15 seconds as specified in the requirement.
+    | This value determines how often the scheduler checks for due reminders.
+    | Value is in seconds. Common values: 15, 30, 60.
     |
     */
-    'schedule_frequency' => 15, // seconds
-
-    /*
-    |--------------------------------------------------------------------------
-    | Logging Configuration
-    |--------------------------------------------------------------------------
-    |
-    | Configure logging behavior for the reminder system.
-    |
-    */
-    'logging' => [
-        'enabled' => env('REMINDER_LOGGING_ENABLED', true),
-        'channel' => env('REMINDER_LOG_CHANNEL', env('LOG_CHANNEL', 'stack')),
-        'level' => env('REMINDER_LOG_LEVEL', 'debug'),
-    ],
+    'schedule_frequency' => 15,
 
     /*
     |--------------------------------------------------------------------------
     | Cleanup Configuration
     |--------------------------------------------------------------------------
     |
-    | Automatically clean up old sent/failed reminders after X days.
-    | Set to 0 to disable cleanup.
+    | Automatically clean up old reminders to keep your database clean.
     |
     */
     'cleanup' => [
-        'enabled' => env('REMINDER_CLEANUP_ENABLED', true),
+        'enabled' => env('REMINDER_CLEANUP_ENABLED', false),
         'after_days' => env('REMINDER_CLEANUP_AFTER_DAYS', 30),
+    ],
+
+    /*
+    |--------------------------------------------------------------------------
+    | Logging Configuration
+    |--------------------------------------------------------------------------
+    |
+    | Configure logging behavior for reminder processing.
+    |
+    */
+    'logging' => [
+        'enabled' => env('REMINDER_LOGGING_ENABLED', true),
+        'channel' => env('REMINDER_LOG_CHANNEL', 'stack'),
     ],
 ];

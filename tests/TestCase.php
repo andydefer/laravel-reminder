@@ -8,6 +8,7 @@ use Andydefer\LaravelReminder\ReminderServiceProvider;
 use Andydefer\LaravelReminder\Tests\Fixtures\TestRemindableModel;
 use Illuminate\Foundation\Testing\LazilyRefreshDatabase;
 use Illuminate\Support\Facades\Config;
+use Illuminate\Support\Facades\Schema;
 use Orchestra\Testbench\TestCase as OrchestraTestCase;
 
 /**
@@ -44,6 +45,7 @@ abstract class TestCase extends OrchestraTestCase
         parent::setUp();
 
         $this->disableLoggingAndQueue();
+        $this->loadNotificationsMigrations();
     }
 
     /**
@@ -69,6 +71,7 @@ abstract class TestCase extends OrchestraTestCase
     {
         $this->configureTestDatabase($app);
         $this->configurePackageSettings($app);
+        $this->configureNotificationsTable($app);
     }
 
     /**
@@ -78,16 +81,14 @@ abstract class TestCase extends OrchestraTestCase
      */
     protected function defineDatabaseMigrations(): void
     {
-        // Charger les migrations du package directement depuis le chemin absolu
-        $migrationPath = realpath(__DIR__ . '/../src/Database/Migrations');
-
-        if ($migrationPath && is_dir($migrationPath)) {
-            $this->loadMigrationsFrom($migrationPath);
+        // Charger les migrations du package
+        $packageMigrationPath = realpath(__DIR__ . '/../src/Database/Migrations');
+        if ($packageMigrationPath && is_dir($packageMigrationPath)) {
+            $this->loadMigrationsFrom($packageMigrationPath);
         }
 
-        // Charger les migrations de test
+        // Charger les migrations de test (y compris notifications)
         $testMigrationPath = __DIR__ . '/database/migrations';
-
         if (is_dir($testMigrationPath)) {
             $this->loadMigrationsFrom($testMigrationPath);
         }
@@ -129,6 +130,20 @@ abstract class TestCase extends OrchestraTestCase
     }
 
     /**
+     * Configure notifications table settings.
+     *
+     * @param \Illuminate\Foundation\Application $app
+     * @return void
+     */
+    private function configureNotificationsTable($app): void
+    {
+        // S'assurer que la table notifications utilise la bonne connexion
+        $app['config']->set('database.connections.testbench.notifications', [
+            'table' => 'notifications',
+        ]);
+    }
+
+    /**
      * Disable logging and queue features for testing.
      *
      * @return void
@@ -137,6 +152,27 @@ abstract class TestCase extends OrchestraTestCase
     {
         Config::set('reminder.logging.enabled', false);
         Config::set('reminder.queue.enabled', false);
+    }
+
+    /**
+     * Load notifications migrations if not already loaded.
+     *
+     * @return void
+     */
+    private function loadNotificationsMigrations(): void
+    {
+        // Vérifier si la table notifications existe déjà
+        if (!Schema::hasTable('notifications')) {
+            // Créer la table notifications manuellement
+            Schema::create('notifications', function ($table) {
+                $table->uuid('id')->primary();
+                $table->string('type');
+                $table->morphs('notifiable');
+                $table->text('data');
+                $table->timestamp('read_at')->nullable();
+                $table->timestamps();
+            });
+        }
     }
 
     /**

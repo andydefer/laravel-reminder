@@ -10,6 +10,8 @@ use Andydefer\LaravelReminder\Models\Reminder;
 use Andydefer\LaravelReminder\Traits\Remindable;
 use Andydefer\LaravelReminder\ValueObjects\Tolerance;
 use Illuminate\Database\Eloquent\Model;
+use Illuminate\Notifications\Notifiable;
+use Illuminate\Notifications\Notification;
 
 /**
  * Test remindable model for package testing.
@@ -28,7 +30,7 @@ use Illuminate\Database\Eloquent\Model;
  */
 class TestRemindableModel extends Model implements ShouldRemind
 {
-    use Remindable;
+    use Remindable, Notifiable;
 
     /**
      * The table associated with the model.
@@ -58,20 +60,14 @@ class TestRemindableModel extends Model implements ShouldRemind
     ];
 
     /**
-     * Get the notification data for this reminder.
+     * Get the notification for this reminder.
      *
      * @param Reminder $reminder The reminder instance being processed
-     * @return array{title: string, body: string, type?: string, data?: array, imageUrl?: string|null}
+     * @return Notification
      */
-    public function toRemind(Reminder $reminder): array
+    public function toRemind(Reminder $reminder): Notification
     {
-        return [
-            'title' => 'Test Reminder: ' . $this->name,
-            'body' => 'This is a test reminder scheduled at ' . $reminder->scheduled_at->format('Y-m-d H:i:s'),
-            'type' => 'test_notification',
-            'data' => $reminder->metadata ?? [],
-            'imageUrl' => null,
-        ];
+        return new TestNotification($this, $reminder);
     }
 
     /**
@@ -82,5 +78,13 @@ class TestRemindableModel extends Model implements ShouldRemind
     public function getTolerance(): Tolerance
     {
         return new Tolerance(30, ToleranceUnit::MINUTE);
+    }
+
+    /**
+     * Get the name of the database connection for notifications.
+     */
+    public function receivesBroadcastNotificationsOn(): string
+    {
+        return 'test-notifications';
     }
 }

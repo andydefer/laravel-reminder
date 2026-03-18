@@ -1,3 +1,7 @@
+Voici votre documentation avec les noms de variables corrigés en anglais :
+
+---
+
 # Laravel Reminder
 
 Une solution flexible et robuste pour gérer les rappels dans vos applications Laravel.
@@ -8,11 +12,11 @@ Laravel Reminder est un package qui vous permet d'ajouter facilement un système
 
 ```php
 // Exemple simple : créer un rappel pour un rendez-vous
-$rendezVous = RendezVous::find(1);
+$appointment = Appointment::find(1);
 
-$rappel = $rendezVous->scheduleReminder(
-    scheduledAt: $rendezVous->date->subHours(24),
-    metadata: ['type' => 'email', 'priority' => 'haute']
+$reminder = $appointment->scheduleReminder(
+    scheduledAt: $appointment->date->subHours(24),
+    metadata: ['type' => 'email', 'priority' => 'high']
 );
 ```
 
@@ -125,8 +129,8 @@ class Article extends Model implements ShouldRemind // Important : implémenter 
         $metadata = $reminder->metadata ?? [];
 
         return [
-            'title' => "Rappel : {$this->title}",
-            'body' => "N'oubliez pas de publier votre article !",
+            'title' => "Reminder : {$this->title}",
+            'body' => "Don't forget to publish your article!",
             'type' => $metadata['type'] ?? 'notification',
             'data' => [
                 'article_id' => $this->id,
@@ -166,13 +170,13 @@ Une fois votre modèle configuré, vous pouvez planifier des rappels de plusieur
 $article = Article::find(1);
 
 // 1. Planifier un rappel simple
-$rappel = $article->scheduleReminder(
+$reminder = $article->scheduleReminder(
     scheduledAt: now()->addDays(7), // Date d'envoi
     metadata: ['type' => 'email'] // Données supplémentaires
 );
 
 // 2. Planifier plusieurs rappels à la fois
-$rappels = $article->scheduleMultipleReminders(
+$reminders = $article->scheduleMultipleReminders(
     scheduledTimes: [
         now()->addDays(7),
         now()->addDays(3),
@@ -182,7 +186,7 @@ $rappels = $article->scheduleMultipleReminders(
 );
 
 // 3. Planifier avec une date en string
-$rappel = $article->scheduleReminder('2025-12-25 09:00:00');
+$reminder = $article->scheduleReminder('2025-12-25 09:00:00');
 ```
 
 ### 4. Gérer les rappels existants
@@ -191,10 +195,10 @@ Le trait `Remindable` met à disposition plusieurs méthodes pour gérer vos rap
 
 ```php
 // Récupérer tous les rappels d'un modèle
-$tousLesRappels = $article->reminders;
+$allReminders = $article->reminders;
 
 // Récupérer uniquement les rappels en attente
-$enAttente = $article->pendingReminders();
+$pendingReminders = $article->pendingReminders();
 
 // Vérifier s'il y a des rappels en attente
 if ($article->hasPendingReminders()) {
@@ -202,10 +206,10 @@ if ($article->hasPendingReminders()) {
 }
 
 // Obtenir le prochain rappel à venir
-$prochainRappel = $article->nextReminder();
+$nextReminder = $article->nextReminder();
 
 // Annuler tous les rappels en attente
-$nombreAnnule = $article->cancelReminders();
+$cancelledCount = $article->cancelReminders();
 ```
 
 ### 5. Traitement manuel des rappels
@@ -231,9 +235,9 @@ Ou via la façade dans votre code :
 ```php
 use Andydefer\LaravelReminder\Facades\Reminder;
 
-$resultats = Reminder::processPendingReminders();
+$results = Reminder::processPendingReminders();
 
-// $resultats = [
+// $results = [
 //     'processed' => 8,
 //     'failed' => 2,
 //     'total' => 10,
@@ -273,8 +277,8 @@ if ($reminder->wasSent()) {
 }
 
 // Requêtes courantes
-$rappelsEnRetard = Reminder::due()->get();
-$rappelsRecents = Reminder::withinTolerance(30)->get();
+$dueReminders = Reminder::due()->get();
+$recentReminders = Reminder::withinTolerance(30)->get();
 ```
 
 ### Les statuts possibles
@@ -290,7 +294,7 @@ Le package utilise une énumération `ReminderStatus` pour suivre l'état des ra
 use Andydefer\LaravelReminder\Enums\ReminderStatus;
 
 // Utilisation dans vos requêtes
-$rappelsEnAttente = Reminder::where('status', ReminderStatus::PENDING)->get();
+$pendingReminders = Reminder::where('status', ReminderStatus::PENDING)->get();
 
 // Vérifier si un statut est terminal (ne changera plus)
 if ($reminder->status->isTerminal()) {
@@ -313,7 +317,7 @@ ToleranceUnit::MONTH->toMinutes();     // 43800 (30 jours)
 ToleranceUnit::YEAR->toMinutes();      // 525600 (365 jours)
 
 // Conversion en secondes
-$secondes = ToleranceUnit::HOUR->toSeconds(); // 3600
+$seconds = ToleranceUnit::HOUR->toSeconds(); // 3600
 ```
 
 ### Le Value Object Tolerance
@@ -329,14 +333,14 @@ $tolerance = new Tolerance(2, ToleranceUnit::HOUR);
 
 // Vérifier si une date est dans la fenêtre
 $scheduledAt = now()->subHours(1); // Rappel prévu il y a 1h
-$estDansFenetre = $tolerance->isWithinWindow(
+$isWithinWindow = $tolerance->isWithinWindow(
     scheduledAt: $scheduledAt,
     now: now() // 2025-03-20 10:00:00
 ); // true (car 1h < 2h)
 
 // Obtenir la représentation en minutes/secondes
 $minutes = $tolerance->toMinutes(); // 120
-$secondes = $tolerance->toSeconds(); // 7200
+$seconds = $tolerance->toSeconds(); // 7200
 
 // Affichage
 echo (string) $tolerance; // "2 Hours"
@@ -366,8 +370,8 @@ class User extends Authenticatable implements ShouldRemind
     {
         // Les données retournées seront utilisées pour créer une notification
         return [
-            'title' => 'Rappel important',
-            'body' => 'Votre abonnement expire bientôt',
+            'title' => 'Important Reminder',
+            'body' => 'Your subscription expires soon',
             'type' => 'subscription',
             'data' => $reminder->metadata,
         ];
@@ -416,18 +420,18 @@ public function boot(): void
 {
     // Écouter tous les événements de rappel
     Event::listen('reminder.*', function ($eventName, $payload) {
-        Log::info("Événement rappel : {$eventName}", $payload);
+        Log::info("Reminder event : {$eventName}", $payload);
     });
 
     // Écouter un événement spécifique
     Event::listen('reminder.sent', function ($reminder) {
         // Envoyer une confirmation à l'administrateur
-        Log::info("Rappel envoyé avec succès : {$reminder->id}");
+        Log::info("Reminder sent successfully : {$reminder->id}");
     });
 
     Event::listen('reminder.failed', function ($reminder, $exception) {
         // Notifier l'équipe technique
-        Log::error("Échec d'envoi de rappel", [
+        Log::error("Failed to send reminder", [
             'reminder_id' => $reminder->id,
             'error' => $exception->getMessage(),
         ]);
@@ -476,14 +480,14 @@ class ArticleRemindersTest extends TestCase
         $article = Article::factory()->create();
 
         // Planifier un rappel
-        $rappel = $article->scheduleReminder(
+        $reminder = $article->scheduleReminder(
             scheduledAt: now()->addDays(3),
             metadata: ['reason' => 'publication']
         );
 
         // Vérifications
         $this->assertDatabaseHas('reminders', [
-            'id' => $rappel->id,
+            'id' => $reminder->id,
             'remindable_id' => $article->id,
             'status' => 'pending',
         ]);
@@ -504,10 +508,10 @@ class ArticleRemindersTest extends TestCase
         );
 
         // Traiter les rappels
-        $resultats = Reminder::processPendingReminders();
+        $results = Reminder::processPendingReminders();
 
         // Vérifier que le rappel a été traité
-        $this->assertEquals(1, $resultats['processed']);
+        $this->assertEquals(1, $results['processed']);
     }
 }
 ```
@@ -518,7 +522,7 @@ class ArticleRemindersTest extends TestCase
 
 ```php
 // 👍 À faire
-$rappel = $commande->scheduleReminder(
+$reminder = $order->scheduleReminder(
     scheduledAt: now()->addDays(3),
     metadata: [
         'notification_type' => 'email',
@@ -529,7 +533,7 @@ $rappel = $commande->scheduleReminder(
 );
 
 // 👎 À éviter
-$rappel = $commande->scheduleReminder(
+$reminder = $order->scheduleReminder(
     now()->addDays(3),
     ['abc' => 123, 'xyz' => true] // Métadonnées non explicites
 );
@@ -570,20 +574,20 @@ class Article implements ShouldRemind
     {
         try {
             // Logique métier potentiellement instable
-            $titre = $this->getDynamicTitle();
+            $title = $this->getDynamicTitle();
         } catch (\Exception $e) {
             // Fallback en cas d'erreur
-            Log::warning('Erreur lors de la génération du rappel', [
+            Log::warning('Error generating reminder', [
                 'article' => $this->id,
                 'error' => $e->getMessage(),
             ]);
 
-            $titre = 'Rappel: ' . $this->title;
+            $title = 'Reminder: ' . $this->title;
         }
 
         return [
-            'title' => $titre,
-            'body' => 'Contenu par défaut',
+            'title' => $title,
+            'body' => 'Default content',
         ];
     }
 }
@@ -650,8 +654,8 @@ class Task extends Model implements ShouldRemind
     public function toRemind(Reminder $reminder): array
     {
         $data = [
-            'title' => "Tâche : {$this->title}",
-            'body' => "Cette tâche est due dans 24h",
+            'title' => "Task : {$this->title}",
+            'body' => "This task is due in 24h",
         ];
 
         // Adapter la notification selon le contexte

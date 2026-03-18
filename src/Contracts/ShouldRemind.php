@@ -6,22 +6,17 @@ namespace Andydefer\LaravelReminder\Contracts;
 
 use Andydefer\LaravelReminder\Models\Reminder;
 use Andydefer\LaravelReminder\ValueObjects\Tolerance;
+use Illuminate\Notifications\Notification;
 
 interface ShouldRemind
 {
     /**
-     * Get the notification data to send for this reminder.
+     * Get the notification to send for this reminder.
      *
      * @param Reminder $reminder The reminder instance being processed
-     * @return array{
-     *     title: string,
-     *     body: string,
-     *     type?: string,
-     *     data?: array<string, mixed>,
-     *     imageUrl?: string|null
-     * }
+     * @return Notification The notification to send
      */
-    public function toRemind(Reminder $reminder): array;
+    public function toRemind(Reminder $reminder): Notification;
 
     /**
      * Get the tolerance window for this reminder.

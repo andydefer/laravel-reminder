@@ -5,10 +5,13 @@ declare(strict_types=1);
 namespace Andydefer\LaravelReminder\Services;
 
 use Andydefer\LaravelReminder\Contracts\ShouldRemind;
+use Andydefer\LaravelReminder\Exceptions\InvalidNotificationException;
 use Andydefer\LaravelReminder\Models\Reminder;
 use Illuminate\Support\Facades\Log;
 use Illuminate\Contracts\Events\Dispatcher;
+use Illuminate\Notifications\Notification;
 use Throwable;
+use TypeError;
 
 class ReminderService
 {
@@ -49,9 +52,10 @@ class ReminderService
 
     public function processReminder(Reminder $reminder): bool
     {
-        $this->dispatchEvent('processing', $reminder); // ✅ corrigé
+        $this->dispatchEvent('processing', $reminder);
 
         try {
+            /** @var \Illuminate\Database\Eloquent\Model $remindable */
             $remindable = $reminder->remindable;
 
             if (!$remindable instanceof ShouldRemind) {
@@ -69,16 +73,31 @@ class ReminderService
                 return false;
             }
 
-            $notificationData = $remindable->toRemind($reminder);
-            $this->sendNotification($reminder, $notificationData);
+            try {
+                // Récupérer la notification directement depuis le modèle
+                $notification = $remindable->toRemind($reminder);
+            } catch (TypeError $e) {
+                // Capturer les erreurs de type PHP (mauvais type de retour)
+                $message = $this->extractTypeErrorMessage($e);
+                throw InvalidNotificationException::create($message);
+            }
+
+            // Vérifier que c'est bien une notification Laravel
+            if (!$notification instanceof Notification) {
+                throw InvalidNotificationException::create($notification);
+            }
+
+            // Envoyer la notification via le système Laravel
+            $remindable->notify($notification);
 
             $reminder->markAsSent();
-            $this->dispatchEvent('sent', $reminder); // ✅ corrigé
+            $this->dispatchEvent('sent', $reminder);
 
             Log::info('Reminder sent successfully', [
                 'reminder_id' => $reminder->id,
                 'remindable_type' => $reminder->remindable_type,
                 'remindable_id' => $reminder->remindable_id,
+                'notification_class' => get_class($notification),
             ]);
 
             return true;
@@ -90,30 +109,31 @@ class ReminderService
             ]);
 
             $reminder->markAsFailed($e->getMessage());
-            $this->dispatchEvent('failed', [$reminder, $e]); // ✅ corrigé
+            $this->dispatchEvent('failed', [$reminder, $e]);
 
             return false;
         }
+    }
+
+    /**
+     * Extract a readable message from a TypeError
+     */
+    private function extractTypeErrorMessage(TypeError $e): string
+    {
+        $message = $e->getMessage();
+
+        // Format: "Return value of ...::toRemind() must be an instance of ..., ... returned"
+        if (preg_match('/must be an instance of [^,]+, (.+) returned/', $message, $matches)) {
+            return sprintf('toRemind() must return an instance of Illuminate\Notifications\Notification, %s returned', $matches[1]);
+        }
+
+        return $message;
     }
 
     protected function isWithinTolerance(Reminder $reminder, ShouldRemind $remindable): bool
     {
         $tolerance = $remindable->getTolerance();
         return $tolerance->isWithinWindow($reminder->scheduled_at, now());
-    }
-
-    protected function sendNotification(Reminder $reminder, array $data): void
-    {
-        if (!isset($data['title']) || !isset($data['body'])) {
-            throw new \InvalidArgumentException('Notification data must contain title and body');
-        }
-
-        Log::debug('Preparing to send reminder notification', [
-            'reminder_id' => $reminder->id,
-            'notification_data' => $data,
-        ]);
-
-        $this->dispatchEvent('sending', [$reminder, $data]); // ✅ corrigé
     }
 
     protected function dispatchEvent(string $event, mixed $payload): void
