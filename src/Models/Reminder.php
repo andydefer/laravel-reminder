@@ -59,15 +59,23 @@ class Reminder extends Model
     protected $attributes = [
         'attempts' => 0,
         'status' => ReminderStatus::PENDING,
+        // FIX: Add default value at model level instead of database
+        // This ensures new records have an empty array for channels
+        'channels' => '[]', // JSON string representation of empty array
     ];
 
+    /**
+     * Get the parent remindable model.
+     */
     public function remindable(): MorphTo
     {
         return $this->morphTo();
     }
 
     /**
-     * Retourne les channels à utiliser pour ce reminder
+     * Get the channels for this reminder.
+     *
+     * @return array
      */
     public function channels(): array
     {
@@ -76,6 +84,8 @@ class Reminder extends Model
 
     /**
      * Mark the reminder as sent.
+     *
+     * @return $this
      */
     public function markAsSent(): self
     {
@@ -90,6 +100,9 @@ class Reminder extends Model
 
     /**
      * Mark the reminder as failed.
+     *
+     * @param string $error
+     * @return $this
      */
     public function markAsFailed(string $error): self
     {
@@ -110,6 +123,8 @@ class Reminder extends Model
 
     /**
      * Cancel the reminder.
+     *
+     * @return $this
      */
     public function cancel(): self
     {
@@ -120,6 +135,8 @@ class Reminder extends Model
 
     /**
      * Check if the reminder is still pending.
+     *
+     * @return bool
      */
     public function isPending(): bool
     {
@@ -128,6 +145,8 @@ class Reminder extends Model
 
     /**
      * Check if the reminder was sent.
+     *
+     * @return bool
      */
     public function wasSent(): bool
     {
@@ -136,6 +155,8 @@ class Reminder extends Model
 
     /**
      * Check if the reminder has failed.
+     *
+     * @return bool
      */
     public function hasFailed(): bool
     {
@@ -143,7 +164,9 @@ class Reminder extends Model
     }
 
     /**
-     * Indique si des channels personnalisés ont été définis
+     * Check if custom channels were set.
+     *
+     * @return bool
      */
     public function getHasCustomChannelsAttribute(): bool
     {
@@ -152,9 +175,9 @@ class Reminder extends Model
     }
 
     /**
-     * Retourne les channels à utiliser pour ce reminder (custom si défini, sinon fallback)
+     * Get channels to use for sending (custom if set, otherwise fallback).
      *
-     * @param array $fallbackChannels Channels à utiliser si aucun custom défini
+     * @param array $fallbackChannels
      * @return array
      */
     public function channelsForSending(array $fallbackChannels = ['mail']): array
@@ -164,12 +187,23 @@ class Reminder extends Model
             : $fallbackChannels;
     }
 
-    // Scopes
+    /**
+     * Scope a query to only include pending reminders.
+     *
+     * @param \Illuminate\Database\Eloquent\Builder $query
+     * @return \Illuminate\Database\Eloquent\Builder
+     */
     public function scopePending($query)
     {
         return $query->where('status', ReminderStatus::PENDING->value);
     }
 
+    /**
+     * Scope a query to only include due reminders.
+     *
+     * @param \Illuminate\Database\Eloquent\Builder $query
+     * @return \Illuminate\Database\Eloquent\Builder
+     */
     public function scopeDue($query)
     {
         return $query->where('status', ReminderStatus::PENDING->value)
@@ -177,6 +211,13 @@ class Reminder extends Model
             ->where('attempts', '<', config('reminder.max_attempts', 3));
     }
 
+    /**
+     * Scope a query to only include reminders within a tolerance window.
+     *
+     * @param \Illuminate\Database\Eloquent\Builder $query
+     * @param int $toleranceMinutes
+     * @return \Illuminate\Database\Eloquent\Builder
+     */
     public function scopeWithinTolerance($query, int $toleranceMinutes)
     {
         return $query->whereBetween('scheduled_at', [

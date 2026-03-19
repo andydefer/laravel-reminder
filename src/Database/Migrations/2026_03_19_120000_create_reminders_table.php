@@ -27,7 +27,11 @@ return new class extends Migration
             // Status and tracking
             $table->string('status')->default(ReminderStatus::PENDING->value)->index();
             $table->json('metadata')->nullable();
-            $table->json('channels')->default(json_encode([])); // Champ JSON pour channels
+
+            // FIX: Remove default value for JSON column (MySQL compatibility)
+            // MySQL does not allow default values for JSON columns
+            $table->json('channels')->nullable();
+
             $table->unsignedTinyInteger('attempts')->default(0);
             $table->dateTime('last_attempt_at')->nullable();
             $table->text('error_message')->nullable();

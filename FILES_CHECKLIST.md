@@ -1,5 +1,5 @@
 # Project File Checklist
-*Last updated: mer. 18 mars 2026 13:17:34 WAT*
+*Last updated: jeu. 19 mars 2026 02:45:30 WAT*
 
 ## Previously Checked Files
 
@@ -8,7 +8,7 @@
 2. src/Casts/ChannelsCast.php [ ]
 3. src/Console/Commands/SendRemindersCommand.php [ ]
 4. src/Contracts/ShouldRemind.php [ ]
-5. src/Database/Migrations/create_reminders_table.php [ ]
+5. src/Database/Migrations/2026_03_19_120000_create_reminders_table.php [ ]
 6. src/Enums/ReminderStatus.php [ ]
 7. src/Enums/ToleranceUnit.php [ ]
 8. src/Exceptions/InvalidNotificationException.php [ ]
