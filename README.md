@@ -386,7 +386,7 @@ $reminders = $article->scheduleMultipleReminders(
         now()->addDay(),    // Troisième rappel : demain
     ],
     metadata: ['priority' => 'high'], // Métadonnées communes
-    channels: ['sms'] // Tous ces rappels utiliseront le canal SMS
+    globalChannels: ['sms'] // Tous ces rappels utiliseront le canal SMS
 );
 
 // Résultat : 3 rappels avec channels = ['sms'] pour chacun
